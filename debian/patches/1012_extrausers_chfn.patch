@@ -1,0 +1,64 @@
+Description: add support for --extrausers for chfn
+ This add support for --extrausers to the chfn tool.
+Author: Michael Vogt <mvo@ubuntu.com>
+Bug-Ubuntu: https://bugs.launchpad.net/bugs/1495580
+
+--- shadow-4.2.orig/src/chfn.c
++++ shadow-4.2/src/chfn.c
+@@ -74,6 +74,11 @@ static bool hflg = false;		/* -h - set h
+ static bool oflg = false;		/* -o - set other information        */
+ static bool pw_locked = false;
+ 
++#ifndef EXTRAUSERS_OPT
++#define EXTRAUSERS_OPT 100000
++#endif
++static bool use_extrausers = false;
++
+ /*
+  * External identifiers
+  */
+@@ -126,6 +131,7 @@ static /*@noreturn@*/void usage (int sta
+ 	(void) fputs (_("  -R, --root CHROOT_DIR         directory to chroot into\n"), usageout);
+ 	(void) fputs (_("  -u, --help                    display this help message and exit\n"), usageout);
+ 	(void) fputs (_("  -w, --work-phone WORK_PHONE   change user's office phone number\n"), usageout);
++	(void) fputs (_("      --extrausers              Use the extra users database\n"), usageout);        
+ 	(void) fputs ("\n", usageout);
+ 	exit (status);
+ }
+@@ -276,6 +282,7 @@ static void process_flags (int argc, cha
+ 		{"root",       required_argument, NULL, 'R'},
+ 		{"help",       no_argument,       NULL, 'u'},
+ 		{"work-phone", required_argument, NULL, 'w'},
++                {"extrausers", no_argument, NULL, EXTRAUSERS_OPT},
+ 		{NULL, 0, NULL, '\0'}
+ 	};
+ 
+@@ -289,6 +296,9 @@ static void process_flags (int argc, cha
+ 	while ((c = getopt_long (argc, argv, "f:h:o:r:R:uw:",
+ 	                         long_options, NULL)) != -1) {
+ 		switch (c) {
++                case EXTRAUSERS_OPT:
++                   use_extrausers = true;
++                   break;
+ 		case 'f':
+ 			if (!may_change_field ('f')) {
+ 				fprintf (stderr,
+@@ -657,6 +667,18 @@ int main (int argc, char **argv)
+ 	/* parse the command line options */
+ 	process_flags (argc, argv);
+ 
++        if (use_extrausers) {
++           pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++           spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++           gr_setdbname (EXTRAUSERS_GROUP_FILE);
++           /* TODO expose this information in other tools */
++           sub_uid_setdbname(EXTRAUSERS_SUBUID_FILE);
++           sub_gid_setdbname(EXTRAUSERS_SUBGID_FILE);
++#ifdef SHADOWGRP
++           sgr_setdbname (EXTRAUSERS_SHADOWGROUP_FILE);
++#endif
++        }
++        
+ 	/*
+ 	 * Get the name of the user to check. It is either the command line
+ 	 * name, or the name getlogin() returns.

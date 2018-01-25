@@ -1,0 +1,88 @@
+Goal: Re-enable logging and displaying failures on login when login is
+      compiled with PAM and when FAILLOG_ENAB is set to yes. And create the
+      faillog file if it does not exist on postinst (as on Woody).
+Depends: 008_login_more_LOG_UNKFAIL_ENAB
+Fixes: #192849
+
+Note: It could be removed if pam_tally could report the number of failures
+      preceding a successful login.
+
+Index: shadow-4.4/src/login.c
+===================================================================
+--- shadow-4.4.orig/src/login.c
++++ shadow-4.4/src/login.c
+@@ -131,9 +131,9 @@ static void update_utmp (const char *use
+                          const char *host,
+                          /*@null@*/const struct utmp *utent);
+ 
+-#ifndef USE_PAM
+ static struct faillog faillog;
+ 
++#ifndef USE_PAM
+ static void bad_time_notify (void);
+ static void check_nologin (bool login_to_root);
+ #else
+@@ -794,6 +794,9 @@ int main (int argc, char **argv)
+ 				SYSLOG ((LOG_NOTICE,
+ 				         "TOO MANY LOGIN TRIES (%u)%s FOR '%s'",
+ 				         failcount, fromhost, failent_user));
++				if ((NULL != pwd) && getdef_bool("FAILLOG_ENAB")) {
++					failure (pwd->pw_uid, tty, &faillog);
++				}
+ 				fprintf (stderr,
+ 				         _("Maximum number of tries exceeded (%u)\n"),
+ 				         failcount);
+@@ -811,6 +814,14 @@ int main (int argc, char **argv)
+ 				         pam_strerror (pamh, retcode)));
+ 				failed = true;
+ 			}
++			if (   (NULL != pwd)
++			    && getdef_bool("FAILLOG_ENAB")
++			    && ! failcheck (pwd->pw_uid, &faillog, failed)) {
++				SYSLOG((LOG_CRIT,
++				        "exceeded failure limit for `%s' %s",
++				        failent_user, fromhost));
++				failed = 1;
++			}
+ 
+ 			if (!failed) {
+ 				break;
+@@ -834,6 +845,10 @@ int main (int argc, char **argv)
+ 			(void) puts ("");
+ 			(void) puts (_("Login incorrect"));
+ 
++			if ((NULL != pwd) && getdef_bool("FAILLOG_ENAB")) {
++				failure (pwd->pw_uid, tty, &faillog);
++			}
++
+ 			if (getdef_str("FTMP_FILE") != NULL) {
+ #ifdef USE_UTMPX
+ 				struct utmpx *failent =
+@@ -1288,6 +1303,7 @@ int main (int argc, char **argv)
+ 		 */
+ #ifndef USE_PAM
+ 		motd ();	/* print the message of the day */
++#endif
+ 		if (   getdef_bool ("FAILLOG_ENAB")
+ 		    && (0 != faillog.fail_cnt)) {
+ 			failprint (&faillog);
+@@ -1300,6 +1316,7 @@ int main (int argc, char **argv)
+ 				         username, (int) faillog.fail_cnt));
+ 			}
+ 		}
++#ifndef USE_PAM
+ 		if (   getdef_bool ("LASTLOG_ENAB")
+ 		    && (ll.ll_time != 0)) {
+ 			time_t ll_time = ll.ll_time;
+Index: shadow-4.4/lib/getdef.c
+===================================================================
+--- shadow-4.4.orig/lib/getdef.c
++++ shadow-4.4/lib/getdef.c
+@@ -86,6 +86,7 @@ static struct itemdef def_table[] = {
+ 	{"ENV_SUPATH", NULL},
+ 	{"ERASECHAR", NULL},
+ 	{"FAIL_DELAY", NULL},
++	{"FAILLOG_ENAB", NULL},
+ 	{"FAKE_SHELL", NULL},
+ 	{"FTMP_FILE", NULL},
+ 	{"GID_MAX", NULL},

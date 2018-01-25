@@ -1,0 +1,22 @@
+Small intro to the system for numbering the patches here...
+
+-The 00xx-... patches are forwarded to upstream's git repository
+
+-The 0xx_... series of patches are patches isolated from the latest
+ version of the shadow Debian package not using quilt in order to
+ separate upstream from Debian-specific stuff.
+
+ NO MORE PATCHES SHOULD BE ADDED IN THESE SERIES
+
+-The 4xx series are patches which have been applied to Debian's shadow
+ and have NOT been accepted and/or applied upstream. These patches MUST be kept
+ even after resynced with upstream
+
+-The 5xx series are patches which are applied to Debian's shadow
+ and will never be proposed upstream because they're too specific
+ This list SHOULD BE AS SHORT AS POSSIBLE
+
+In short, while we are working towards synchronisation with upstream,
+our goal is to make 0xx patches disappear by moving them either to 3xx
+series (things already implemented upstream) or to 4xx series
+(Debian-specific patches).

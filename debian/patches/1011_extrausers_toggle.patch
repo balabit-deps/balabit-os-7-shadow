@@ -1,0 +1,144 @@
+--- a/lib/defines.h
++++ b/lib/defines.h
+@@ -324,6 +324,22 @@
+ #define EXTRAUSERS_SHADOW_FILE "/var/lib/extrausers/shadow"
+ #endif
+ 
++#ifndef EXTRAUSERS_GROUP_FILE
++#define EXTRAUSERS_GROUP_FILE "/var/lib/extrausers/group"
++#endif
++
++#ifndef EXTRAUSERS_SHADOWGROUP_FILE
++#define EXTRAUSERS_SHADOWGROUP_FILE "/var/lib/extrausers/gshadow"
++#endif
++
++#ifndef EXTRAUSERS_SUBUID_FILE
++#define EXTRAUSERS_SUBUID_FILE "/var/lib/extrausers/subuid"
++#endif
++
++#ifndef EXTRAUSERS_SUBGID_FILE
++#define EXTRAUSERS_SUBGID_FILE "/var/lib/extrausers/subgid"
++#endif
++
+ #ifndef NULL
+ #define NULL ((void *) 0)
+ #endif
+--- a/src/groupadd.c
++++ b/src/groupadd.c
+@@ -102,6 +102,12 @@
+ static void check_flags (void);
+ static void check_perms (void);
+ 
++#ifndef EXTRAUSERS_OPT
++#define EXTRAUSERS_OPT 100000
++#endif
++
++static bool use_extrausers = false;
++
+ /*
+  * usage - display usage message and exit
+  */
+@@ -123,6 +129,7 @@
+ 	(void) fputs (_("  -p, --password PASSWORD       use this encrypted password for the new group\n"), usageout);
+ 	(void) fputs (_("  -r, --system                  create a system account\n"), usageout);
+ 	(void) fputs (_("  -R, --root CHROOT_DIR         directory to chroot into\n"), usageout);
++	(void) fputs (_("      --extrausers              Use the extra users database\n"), usageout);
+ 	(void) fputs ("\n", usageout);
+ 	exit (status);
+ }
+@@ -386,12 +393,16 @@
+ 		{"password",   required_argument, NULL, 'p'},
+ 		{"system",     no_argument,       NULL, 'r'},
+ 		{"root",       required_argument, NULL, 'R'},
++        {"extrausers", no_argument,       NULL, EXTRAUSERS_OPT},
+ 		{NULL, 0, NULL, '\0'}
+ 	};
+ 
+ 	while ((c = getopt_long (argc, argv, "fg:hK:op:rR:",
+ 		                 long_options, NULL)) != -1) {
+ 		switch (c) {
++        case EXTRAUSERS_OPT:
++            use_extrausers = true;
++            break;
+ 		case 'f':
+ 			/*
+ 			 * "force" - do nothing, just exit(0), if the
+@@ -598,7 +609,18 @@
+ 
+ 	check_perms ();
+ 
++    if (use_extrausers) {
++		fprintf (stderr, "ENTER EXTRAUSERS_GROUP_FILE");
++        gr_setdbname (EXTRAUSERS_GROUP_FILE);
++		fprintf (stderr, "EXIT EXTRAUSERS_GROUP_FILE");
++    }
++
+ #ifdef SHADOWGRP
++    if (use_extrausers) {
++		fprintf (stderr, "ENTER EXTRAUSERS_SHADOWGROUP_FILE");
++        sgr_setdbname (EXTRAUSERS_SHADOWGROUP_FILE);
++		fprintf (stderr, "EXIT EXTRAUSERS_SHADOWGROUP_FILE");
++    }
+ 	is_shadow_grp = sgr_file_present ();
+ #endif
+ 
+--- a/src/useradd.c
++++ b/src/useradd.c
+@@ -143,6 +143,12 @@
+ static long sys_ngroups;
+ static bool do_grp_update = false;	/* group files need to be updated */
+ 
++#ifndef EXTRAUSERS_OPT
++#define EXTRAUSERS_OPT 100000
++#endif
++
++static bool use_extrausers = false;
++
+ static bool
+     bflg = false,		/* new default root of home directory */
+     cflg = false,		/* comment (GECOS) field for new account */
+@@ -781,6 +787,7 @@
+ #ifdef WITH_SELINUX
+ 	(void) fputs (_("  -Z, --selinux-user SEUSER     use a specific SEUSER for the SELinux user mapping\n"), usageout);
+ #endif				/* WITH_SELINUX */
++	(void) fputs (_("      --extrausers              Use the extra users database\n"), usageout);
+ 	(void) fputs ("\n", usageout);
+ 	exit (status);
+ }
+@@ -1055,6 +1062,7 @@
+ #ifdef WITH_SELINUX
+ 			{"selinux-user",   required_argument, NULL, 'Z'},
+ #endif				/* WITH_SELINUX */
++			{"extrausers",     no_argument,       NULL, EXTRAUSERS_OPT},
+ 			{NULL, 0, NULL, '\0'}
+ 		};
+ 		while ((c = getopt_long (argc, argv,
+@@ -1065,6 +1073,9 @@
+ #endif				/* !WITH_SELINUX */
+ 		                         long_options, NULL)) != -1) {
+ 			switch (c) {
++			case EXTRAUSERS_OPT:
++                use_extrausers = true;
++                break;
+ 			case 'b':
+ 				if (   ( !VALID (optarg) )
+ 				    || ( optarg[0] != '/' )) {
+@@ -2181,6 +2192,18 @@
+ 		}
+ 	}
+ 
++    if (use_extrausers) {
++        pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++        spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++        gr_setdbname (EXTRAUSERS_GROUP_FILE);
++        /* TODO expose this information in other tools */
++        sub_uid_setdbname(EXTRAUSERS_SUBUID_FILE);
++        sub_gid_setdbname(EXTRAUSERS_SUBGID_FILE);
++#ifdef SHADOWGRP
++        sgr_setdbname (EXTRAUSERS_SHADOWGROUP_FILE);
++#endif
++    }
++
+ 	/*
+ 	 * Do the hard stuff:
+ 	 * - open the files,

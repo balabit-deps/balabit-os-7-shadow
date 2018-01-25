@@ -1,0 +1,260 @@
+Description: Add support to passwd for updating libnss-extrausers locations
+Author: Michael Terry <michael.terry@canonical.com>
+
+--- a/lib/defines.h
++++ b/lib/defines.h
+@@ -316,6 +316,14 @@
+ #endif
+ #endif
+ 
++#ifndef EXTRAUSERS_PASSWD_FILE
++#define EXTRAUSERS_PASSWD_FILE "/var/lib/extrausers/passwd"
++#endif
++
++#ifndef EXTRAUSERS_SHADOW_FILE
++#define EXTRAUSERS_SHADOW_FILE "/var/lib/extrausers/shadow"
++#endif
++
+ #ifndef NULL
+ #define NULL ((void *) 0)
+ #endif
+--- a/src/passwd.c
++++ b/src/passwd.c
+@@ -565,8 +565,15 @@
+ {
+ 	const struct passwd *pw;
+ 	struct passwd *npw;
++	bool try_extrausers = strcmp (pw_dbname (), EXTRAUSERS_PASSWD_FILE) != 0 &&
++	                      access (EXTRAUSERS_PASSWD_FILE, F_OK) == 0;
+ 
+ 	if (pw_lock () == 0) {
++		if (try_extrausers) {
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			update_noshadow ();
++			return;
++		}
+ 		(void) fprintf (stderr,
+ 		                _("%s: cannot lock %s; try again later.\n"),
+ 		                Prog, pw_dbname ());
+@@ -574,6 +581,20 @@
+ 	}
+ 	pw_locked = true;
+ 	if (pw_open (O_CREAT | O_RDWR) == 0) {
++		if (try_extrausers) {
++			if (pw_unlock () == 0) {
++				(void) fprintf (stderr,
++				                _("%s: failed to unlock %s\n"),
++				                Prog, pw_dbname ());
++				SYSLOG ((LOG_ERR, "failed to unlock %s", pw_dbname ()));
++				/* continue */
++			}
++			pw_locked = false;
++
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			update_noshadow ();
++			return;
++		}
+ 		(void) fprintf (stderr,
+ 		                _("%s: cannot open %s\n"),
+ 		                Prog, pw_dbname ());
+@@ -582,6 +603,21 @@
+ 	}
+ 	pw = pw_locate (name);
+ 	if (NULL == pw) {
++		if (try_extrausers) {
++			(void) pw_close ();
++			if (pw_unlock () == 0) {
++				(void) fprintf (stderr,
++				                _("%s: failed to unlock %s\n"),
++				                Prog, pw_dbname ());
++				SYSLOG ((LOG_ERR, "failed to unlock %s", pw_dbname ()));
++				/* continue */
++			}
++			pw_locked = false;
++
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			update_noshadow ();
++			return;
++		}
+ 		(void) fprintf (stderr,
+ 		                _("%s: user '%s' does not exist in %s\n"),
+ 		                Prog, name, pw_dbname ());
+@@ -619,8 +655,15 @@
+ {
+ 	const struct spwd *sp;
+ 	struct spwd *nsp;
++	bool try_extrausers = strcmp (spw_dbname (), EXTRAUSERS_SHADOW_FILE) != 0 &&
++	                      access (EXTRAUSERS_SHADOW_FILE, F_OK) == 0;
+ 
+ 	if (spw_lock () == 0) {
++		if (try_extrausers) {
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			update_shadow ();
++			return;
++		}
+ 		(void) fprintf (stderr,
+ 		                _("%s: cannot lock %s; try again later.\n"),
+ 		                Prog, spw_dbname ());
+@@ -628,6 +671,20 @@
+ 	}
+ 	spw_locked = true;
+ 	if (spw_open (O_CREAT | O_RDWR) == 0) {
++		if (try_extrausers) {
++			if (spw_unlock () == 0) {
++				(void) fprintf (stderr,
++						        _("%s: failed to unlock %s\n"),
++						        Prog, spw_dbname ());
++				SYSLOG ((LOG_ERR, "failed to unlock %s", spw_dbname ()));
++				/* continue */
++			}
++			spw_locked = false;
++
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			update_shadow ();
++			return;
++		}
+ 		(void) fprintf (stderr,
+ 		                _("%s: cannot open %s\n"),
+ 		                Prog, spw_dbname ());
+@@ -638,7 +695,9 @@
+ 	if (NULL == sp) {
+ 		/* Try to update the password in /etc/passwd instead. */
+ 		(void) spw_close ();
+-		update_noshadow ();
++		if (!try_extrausers) {
++			update_noshadow ();
++		}
+ 		if (spw_unlock () == 0) {
+ 			(void) fprintf (stderr,
+ 			                _("%s: failed to unlock %s\n"),
+@@ -647,6 +706,10 @@
+ 			/* continue */
+ 		}
+ 		spw_locked = false;
++		if (try_extrausers) {
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			update_shadow ();
++		}
+ 		return;
+ 	}
+ 	nsp = __spw_dup (sp);
+--- a/lib/commonio.c
++++ b/lib/commonio.c
+@@ -398,6 +398,7 @@
+ int commonio_lock (struct commonio_db *db)
+ {
+ #ifdef HAVE_LCKPWDF
++  if (strncmp(db->filename, "/etc/", 5) == 0) {
+ 	/*
+ 	 * only if the system libc has a real lckpwdf() - the one from
+ 	 * lockpw.c calls us and would cause infinite recursion!
+@@ -425,7 +426,9 @@
+ 
+ 	ulckpwdf ();
+ 	return 0;		/* failure */
+-#else				/* !HAVE_LCKPWDF */
++  } else /* strncmp(db->filename, "/etc/", 5) == 0 */
++#endif				/* HAVE_LCKPWDF */
++  {
+ 	int i;
+ 
+ 	/*
+@@ -453,7 +456,7 @@
+ 		}
+ 	}
+ 	return 0;		/* failure */
+-#endif				/* !HAVE_LCKPWDF */
++  }
+ }
+ 
+ static void dec_lock_count (void)
+--- a/src/usermod.c
++++ b/src/usermod.c
+@@ -1525,7 +1525,16 @@
+  */
+ static void open_files (void)
+ {
++	bool try_extrausers = strcmp (pw_dbname (), EXTRAUSERS_PASSWD_FILE) != 0 &&
++	                      access (EXTRAUSERS_PASSWD_FILE, F_OK) == 0;
++
+ 	if (pw_lock () == 0) {
++		if (try_extrausers) {
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			open_files ();
++			return;
++		}
+ 		fprintf (stderr,
+ 		         _("%s: cannot lock %s; try again later.\n"),
+ 		         Prog, pw_dbname ());
+@@ -1533,12 +1542,29 @@
+ 	}
+ 	pw_locked = true;
+ 	if (pw_open (O_CREAT | O_RDWR) == 0) {
++		if (try_extrausers) {
++			pw_unlock ();
++			pw_locked = false;
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			open_files ();
++			return;
++		}
+ 		fprintf (stderr,
+ 		         _("%s: cannot open %s\n"),
+ 		         Prog, pw_dbname ());
+ 		fail_exit (E_PW_UPDATE);
+ 	}
+ 	if (is_shadow_pwd && (spw_lock () == 0)) {
++		if (try_extrausers) {
++			pw_close ();
++			pw_unlock ();
++			pw_locked = false;
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			open_files ();
++			return;
++		}
+ 		fprintf (stderr,
+ 		         _("%s: cannot lock %s; try again later.\n"),
+ 		         Prog, spw_dbname ());
+@@ -1546,6 +1572,17 @@
+ 	}
+ 	spw_locked = true;
+ 	if (is_shadow_pwd && (spw_open (O_CREAT | O_RDWR) == 0)) {
++		if (try_extrausers) {
++			pw_close ();
++			pw_unlock ();
++			spw_unlock ();
++			pw_locked = false;
++			spw_locked = false;
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			open_files ();
++			return;
++		}
+ 		fprintf (stderr,
+ 		         _("%s: cannot open %s\n"),
+ 		         Prog, spw_dbname ());
+@@ -1634,11 +1671,22 @@
+ 	struct spwd spent;
+ 	const struct spwd *spwd = NULL;
+ 
++	bool try_extrausers = strcmp (pw_dbname (), EXTRAUSERS_PASSWD_FILE) != 0 &&
++	                      access (EXTRAUSERS_PASSWD_FILE, F_OK) == 0;
++
+ 	/*
+ 	 * Locate the entry in /etc/passwd, which MUST exist.
+ 	 */
+ 	pwd = pw_locate (user_name);
+ 	if (NULL == pwd) {
++		if (try_extrausers) {
++			close_files ();
++			pw_setdbname (EXTRAUSERS_PASSWD_FILE);
++			spw_setdbname (EXTRAUSERS_SHADOW_FILE);
++			open_files ();
++			usr_update ();
++			return;
++		}
+ 		fprintf (stderr,
+ 		         _("%s: user '%s' does not exist in %s\n"),
+ 		         Prog, user_name, pw_dbname ());

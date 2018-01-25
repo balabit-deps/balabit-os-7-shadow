@@ -1,0 +1,1 @@
+rm_conffile /etc/init/passwd.conf 1:4.2-3.2ubuntu4~ passwd
