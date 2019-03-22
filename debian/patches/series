@@ -17,3 +17,5 @@
 1010_extrausers.patch
 1011_extrausers_toggle.patch
 1012_extrausers_chfn.patch
+1013_extrausers_deluser.patch
+2000_fix-su-pam-env-handling

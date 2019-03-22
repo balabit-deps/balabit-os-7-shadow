@@ -1,0 +1,45 @@
+Description: Fix "su -l" to correctly use pam_getenvlist
+ When "su -l" is used the behaviour should be similar to a direct
+ login. However login.c is doing a setup_env(pw) and then a
+ pam_getenvlist() in this scenario. But su.c is doing it the other
+ way around. Which means that the values from /etc/environment are
+ overriden. This is a bug because:
+ .
+ a) the man-page claims that "-l": "provides an environment similar
+    to what the user would expect had the user logged in directly."
+    And login.c is using the values from /etc/environment
+ b) The "OneTruePath" spec claims that there should be one place to
+    set PATH (https://wiki.ubuntu.com/OneTruePath) and that should
+    be /etc/environment. But su.c is currently not honoring it.
+Author: Michael Vogt <mvo@ubuntu.com>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: vendor
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/shadow/+bug/984390
+Last-Update: 2017-01-30
+
+--- shadow-4.2.orig/src/su.c
++++ shadow-4.2/src/su.c
+@@ -933,6 +933,18 @@ static void set_environment (struct pass
+ 				pw->pw_shell = xstrdup (shellstr);
+ 			}
+ 			setup_env (pw);
++                        // FIXME: merge with the pam_getenvlist above
++#ifdef USE_PAM
++                        {
++                           const char *const *env;
++                           
++                           env = (const char *const *) pam_getenvlist (pamh);
++                           while ((NULL != env) && (NULL != *env)) {
++                              addenv (*env, NULL);
++                              env++;
++                           }
++                        }
++#endif
+ 		} else {
+ 			addenv ("HOME", pw->pw_dir);
+ 			addenv ("USER", pw->pw_name);

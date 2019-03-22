@@ -1,3 +1,12 @@
+shadow (1:4.5-1ubuntu2) bionic; urgency=medium
+
+  * debian/patches/1013_extrausers_deluser.patch
+    - add --extrausers option to "userdel" (LP: #1659534)
+  * debian/patches/2000_fix-su-pam-env-handling.
+    - fix "su -l" to correctly use pam_getenvlist (LP: #984390)
+
+ -- Michael Vogt <michael.vogt@ubuntu.com>  Fri, 22 Mar 2019 20:05:38 +0100
+
 shadow (1:4.5-1ubuntu1) bionic; urgency=medium
 
   * Merge with Debian; remaining changes:
